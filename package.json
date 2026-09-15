@@ -1,23 +1,25 @@
 {
-  "name": "dfwlfront-9",
+  "name": "station-inspection-closure",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "server": "node server/index.js",
+    "start": "node server/index.js",
+    "test": "node --test test/"
   },
   "dependencies": {
-    "@vitejs/plugin-vue": "^6.0.1",
-    "vite": "^7.1.5",
-    "typescript": "~5.9.2",
-    "vue": "^3.5.21",
-    "pinia": "^3.0.3",
+    "better-sqlite3": "^11.10.0",
     "element-plus": "^2.10.7",
-    "naive-ui": "^2.42.0",
-    "echarts": "^5.6.0",
-    "leaflet": "^1.9.4"
+    "express": "^4.21.2",
+    "vue": "^3.5.21"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.5"
+  }
 }
