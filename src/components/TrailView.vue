@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, onMounted, ref, watch } from 'vue';
+import { computed, inject, onMounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import type { Ref } from 'vue';
 import { api } from '../api';
@@ -11,6 +11,10 @@ const meta = inject<Ref<Meta | null>>('meta')!;
 const currentUser = inject<Ref<User | null>>('currentUser')!;
 
 const stationId = ref<number>(currentUser.value?.station_id ?? 1);
+// 数据按站点归属隔离：站点选择器仅显示本站
+const visibleStations = computed(() =>
+  (meta.value?.stations ?? []).filter((s) => s.id === currentUser.value?.station_id),
+);
 const entityType = ref('');
 const entityId = ref<number | null>(null);
 const events = ref<TrailEvent[]>([]);
@@ -83,8 +87,8 @@ onMounted(refresh);
 <template>
   <div>
     <div class="toolbar">
-      <el-select v-model="stationId" style="width: 160px" placeholder="站点">
-        <el-option v-for="s in meta?.stations ?? []" :key="s.id" :value="s.id" :label="s.name" />
+      <el-select v-model="stationId" style="width: 160px" disabled>
+        <el-option v-for="s in visibleStations" :key="s.id" :value="s.id" :label="s.name" />
       </el-select>
       <el-select v-model="entityType" style="width: 130px" placeholder="全部对象" clearable>
         <el-option v-for="(v, k) in entityLabels" :key="k" :value="k" :label="v" />

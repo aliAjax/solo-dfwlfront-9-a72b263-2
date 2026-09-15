@@ -36,6 +36,26 @@ export function createApp({ dbPath = ':memory:', testHooks = false } = {}) {
 
   const hooksOf = (req) => (testHooks && req.body && req.body.__failAt ? { failAt: req.body.__failAt } : {});
 
+  // 读权限：所有业务数据按站点归属隔离，跨站读取一律拒绝
+  const forbidCrossStation = (user, stationId) => {
+    if (Number(stationId) !== user.station_id) {
+      throw new HttpError(403, 'CROSS_STATION', '不能跨站查看：仅可查看本站点数据');
+    }
+  };
+  // 请求未显式指定站点时，限定为当前用户所属站点
+  const readStation = (req) => {
+    const sid = req.query.station_id ? Number(req.query.station_id) : req.user.station_id;
+    forbidCrossStation(req.user, sid);
+    return sid;
+  };
+  const entityStation = (type, id) => {
+    if (type === 'plan') return db.prepare('SELECT station_id FROM plans WHERE id = ?').get(id)?.station_id;
+    if (type === 'task')
+      return db.prepare('SELECT p.station_id FROM tasks t JOIN plans p ON p.id = t.plan_id WHERE t.id = ?').get(id)?.station_id;
+    if (type === 'anomaly') return db.prepare('SELECT station_id FROM anomalies WHERE id = ?').get(id)?.station_id;
+    return undefined;
+  };
+
   app.get('/api/health', (req, res) => ok(res, { status: 'up' }));
 
   app.get('/api/meta', (req, res) => {
@@ -62,29 +82,34 @@ export function createApp({ dbPath = ':memory:', testHooks = false } = {}) {
   });
 
   app.get('/api/plans', (req, res) => {
-    const { station_id, plan_date } = req.query;
+    const sid = readStation(req);
+    const { plan_date } = req.query;
     const rows = db
       .prepare(
         `SELECT p.*, s.name AS station_name, sh.name AS shift_name,
                 (SELECT COUNT(*) FROM tasks t WHERE t.plan_id = p.id) AS task_count,
                 (SELECT COUNT(*) FROM tasks t WHERE t.plan_id = p.id AND t.status = 'completed') AS done_count
          FROM plans p JOIN stations s ON s.id = p.station_id JOIN shifts sh ON sh.id = p.shift_id
-         WHERE (? IS NULL OR p.station_id = ?) AND (? IS NULL OR p.plan_date = ?)
+         WHERE p.station_id = ? AND (? IS NULL OR p.plan_date = ?)
          ORDER BY p.plan_date DESC, p.id DESC`
       )
-      .all(station_id || null, station_id || null, plan_date || null, plan_date || null);
+      .all(sid, plan_date || null, plan_date || null);
     ok(res, rows);
   });
 
   app.get('/api/tasks', (req, res) => {
     const planId = Number(req.query.plan_id);
     if (!planId) throw new HttpError(400, 'BAD_PARAMS', '缺少 plan_id');
+    const plan = db.prepare('SELECT * FROM plans WHERE id = ?').get(planId);
+    if (!plan) throw new HttpError(404, 'PLAN_NOT_FOUND', '计划不存在');
+    forbidCrossStation(req.user, plan.station_id);
     ok(res, listTasksOfPlan(db, planId));
   });
 
   app.get('/api/tasks/:id', (req, res) => {
     const task = getTaskJoined(db, Number(req.params.id));
     if (!task) throw new HttpError(404, 'TASK_NOT_FOUND', '任务不存在');
+    forbidCrossStation(req.user, task.station_id);
     const items = db.prepare('SELECT * FROM check_items WHERE device_type = ? ORDER BY seq').all(task.device_type);
     const results = db.prepare('SELECT * FROM inspection_results WHERE task_id = ? ORDER BY id').all(task.id);
     const anomaly = db.prepare('SELECT * FROM anomalies WHERE task_id = ?').get(task.id) || null;
@@ -99,7 +124,8 @@ export function createApp({ dbPath = ':memory:', testHooks = false } = {}) {
   });
 
   app.get('/api/anomalies', (req, res) => {
-    const { station_id, status } = req.query;
+    const sid = readStation(req);
+    const { status } = req.query;
     ok(
       res,
       db
@@ -109,10 +135,10 @@ export function createApp({ dbPath = ':memory:', testHooks = false } = {}) {
            JOIN devices d ON d.id = a.device_id
            LEFT JOIN users u ON u.id = a.responsible_id
            LEFT JOIN users h ON h.id = a.handler_id
-           WHERE (? IS NULL OR a.station_id = ?) AND (? IS NULL OR a.status = ?)
+           WHERE a.station_id = ? AND (? IS NULL OR a.status = ?)
            ORDER BY a.status = 'closed', a.id DESC`
         )
-        .all(station_id || null, station_id || null, status || null, status || null)
+        .all(sid, status || null, status || null)
     );
   });
 
@@ -128,6 +154,7 @@ export function createApp({ dbPath = ':memory:', testHooks = false } = {}) {
       )
       .get(Number(req.params.id));
     if (!a) throw new HttpError(404, 'ANOMALY_NOT_FOUND', '异常单不存在');
+    forbidCrossStation(req.user, a.station_id);
     const rechecks = db
       .prepare(
         `SELECT r.*, u.name AS created_by_name FROM anomaly_rechecks r
@@ -147,20 +174,25 @@ export function createApp({ dbPath = ':memory:', testHooks = false } = {}) {
 
   // 轨迹回看
   app.get('/api/trail', (req, res) => {
-    const { station_id, entity_type, entity_id } = req.query;
+    const sid = readStation(req);
+    const { entity_type, entity_id } = req.query;
+    if (entity_type && entity_id) {
+      const es = entityStation(entity_type, Number(entity_id));
+      if (es === undefined || es === null) throw new HttpError(404, 'ENTITY_NOT_FOUND', '对象不存在');
+      forbidCrossStation(req.user, es);
+    }
     ok(
       res,
       db
         .prepare(
           `SELECT * FROM audit_trail
-           WHERE (? IS NULL OR station_id = ?)
+           WHERE station_id = ?
              AND (? IS NULL OR entity_type = ?)
              AND (? IS NULL OR entity_id = ?)
            ORDER BY id DESC LIMIT 200`
         )
         .all(
-          station_id || null,
-          station_id || null,
+          sid,
           entity_type || null,
           entity_type || null,
           entity_id ? Number(entity_id) : null,

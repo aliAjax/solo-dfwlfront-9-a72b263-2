@@ -22,6 +22,8 @@ const generating = ref(false);
 
 const isSupervisor = computed(() => currentUser.value?.role === 'supervisor');
 const myStation = computed(() => currentUser.value?.station_id);
+// 数据按站点归属隔离：站点选择器仅显示本站
+const visibleStations = computed(() => (meta.value?.stations ?? []).filter((s) => s.id === myStation.value));
 
 const taskStatus = {
   pending: { label: '待领取', type: 'info' as const },
@@ -149,8 +151,8 @@ onMounted(refresh);
 <template>
   <div>
     <div class="toolbar">
-      <el-select v-model="stationId" style="width: 160px" placeholder="站点">
-        <el-option v-for="s in meta?.stations ?? []" :key="s.id" :value="s.id" :label="s.name" />
+      <el-select v-model="stationId" style="width: 160px" disabled>
+        <el-option v-for="s in visibleStations" :key="s.id" :value="s.id" :label="s.name" />
       </el-select>
       <el-date-picker v-model="planDate" type="date" value-format="YYYY-MM-DD" :clearable="false" style="width: 160px" />
       <el-select v-model="shiftId" style="width: 130px" placeholder="班次">

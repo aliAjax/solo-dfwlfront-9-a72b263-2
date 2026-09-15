@@ -256,3 +256,60 @@ test('轨迹：完整留痕且顺序正确', async () => {
   const rechecks = db.prepare('SELECT * FROM anomaly_rechecks WHERE anomaly_id = ? ORDER BY id').all(anomalyId);
   assert.deepEqual(rechecks.map((x) => x.result), ['fail', 'pass']);
 });
+
+test('跨站读取：计划/任务/异常/轨迹均按站点归属拒绝', async () => {
+  // 城西用户（钱巡检/赵安全）读取城东数据 → 一律 403
+  for (const user of [QIAN, ZHAO]) {
+    let r = await req('GET', '/api/plans?station_id=1', { user });
+    assert.equal(r.status, 403, 'plans 跨站应拒绝');
+    assert.equal(r.json.error.code, 'CROSS_STATION');
+
+    r = await req('GET', `/api/tasks?plan_id=${planId}`, { user });
+    assert.equal(r.status, 403, 'tasks 跨站应拒绝');
+
+    r = await req('GET', `/api/tasks/${fuelTask.id}`, { user });
+    assert.equal(r.status, 403, 'task 详情跨站应拒绝');
+
+    r = await req('GET', '/api/anomalies?station_id=1', { user });
+    assert.equal(r.status, 403, 'anomalies 跨站应拒绝');
+
+    r = await req('GET', `/api/anomalies/${anomalyId}`, { user });
+    assert.equal(r.status, 403, 'anomaly 详情跨站应拒绝');
+
+    r = await req('GET', '/api/trail?station_id=1', { user });
+    assert.equal(r.status, 403, 'trail 跨站应拒绝');
+
+    r = await req('GET', `/api/trail?entity_type=anomaly&entity_id=${anomalyId}`, { user });
+    assert.equal(r.status, 403, 'trail 按对象跨站应拒绝');
+  }
+
+  // 不带站点参数 → 自动限定本站，不泄露他站数据
+  let r = await req('GET', '/api/plans', { user: QIAN });
+  assert.equal(r.status, 200);
+  assert.ok(r.json.data.every((p) => p.station_id === 2));
+
+  r = await req('GET', '/api/anomalies', { user: QIAN });
+  assert.equal(r.status, 200);
+  assert.ok(r.json.data.every((a) => a.station_id === 2));
+
+  r = await req('GET', '/api/trail', { user: QIAN });
+  assert.equal(r.status, 200);
+  assert.ok(r.json.data.every((e) => e.station_id === 2));
+
+  // 本站读取不受影响
+  r = await req('GET', '/api/plans?station_id=1', { user: LI });
+  assert.equal(r.status, 200);
+  assert.ok(r.json.data.length > 0);
+
+  r = await req('GET', `/api/tasks?plan_id=${planId}`, { user: WANG });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.data.length, 4);
+
+  r = await req('GET', `/api/anomalies/${anomalyId}`, { user: LI });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.data.anomaly.status, 'closed');
+
+  r = await req('GET', `/api/trail?entity_type=task&entity_id=${fuelTask.id}`, { user: ZHANG });
+  assert.equal(r.status, 200);
+  assert.ok(r.json.data.length >= 3);
+});

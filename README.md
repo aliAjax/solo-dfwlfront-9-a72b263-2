@@ -23,11 +23,13 @@ npm run server    # 后端 :3001
 npm run dev       # 前端 :5173，/api 自动代理到 3001
 ```
 
-运行端到端测试（真实操作走通关键流程）：
+运行端到端测试（真实操作走通关键流程，Node ≥ 20）：
 
 ```bash
 npm test
 ```
+
+> 运行时数据库 `data/app.db` 在首次启动时自动创建并写入种子数据，该目录已加入 `.gitignore`，不随项目交付。
 
 ## 种子数据
 
@@ -44,6 +46,7 @@ npm test
 | 按站点+班次生成任务 | `plans` 表 `(station_id, shift_id, plan_date)` 唯一约束，重复生成幂等返回现有计划，刷新不产生重复任务 |
 | 一台设备同一时段只能一人领取 | 任务按 `(plan_id, device_id)` 唯一；领取为原子条件更新 `UPDATE ... WHERE status='pending' AND claimed_by IS NULL`，重复领取返回 409 |
 | 跨站操作拒绝 | 所有写操作校验操作人站点与资源站点一致，不一致返回 403 |
+| 跨站读取拒绝 | 所有读接口（计划/任务/异常/轨迹）按站点归属隔离：显式请求他站数据返回 403，未指定站点时自动限定本站 |
 | 巡检开始后锁定计划 | 首个任务开始时计划置为 `locked`，任务清单冻结 |
 | 不合格只生成一张异常单 | `anomalies.task_id` 唯一约束 + `ON CONFLICT DO NOTHING`；多项不合格汇总进同一张单，记录复检期限（默认 24h）与责任人（本站安全主管） |
 | 复检未通过升级 | 状态机 `open→processing→recheck_pending→closed`；复检失败 → `escalated`、等级+1、期限收紧至 12h，可再次处理 |

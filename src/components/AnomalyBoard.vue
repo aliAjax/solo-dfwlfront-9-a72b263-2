@@ -25,6 +25,8 @@ const statusMeta: Record<string, { label: string; type: 'info' | 'primary' | 'wa
 };
 
 const myStation = computed(() => currentUser.value?.station_id);
+// 数据按站点归属隔离：站点选择器仅显示本站
+const visibleStations = computed(() => (meta.value?.stations ?? []).filter((s) => s.id === myStation.value));
 
 async function refresh() {
   loading.value = true;
@@ -100,8 +102,8 @@ onMounted(refresh);
 <template>
   <div>
     <div class="toolbar">
-      <el-select v-model="stationId" style="width: 160px" placeholder="站点">
-        <el-option v-for="s in meta?.stations ?? []" :key="s.id" :value="s.id" :label="s.name" />
+      <el-select v-model="stationId" style="width: 160px" disabled>
+        <el-option v-for="s in visibleStations" :key="s.id" :value="s.id" :label="s.name" />
       </el-select>
       <el-select v-model="statusFilter" style="width: 140px" placeholder="全部状态" clearable>
         <el-option v-for="(v, k) in statusMeta" :key="k" :value="k" :label="v.label" />
